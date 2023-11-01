@@ -1,0 +1,9 @@
+[netbox]
+
+172.18.33.74 ansible_ssh_user=orlando.ferraz
+
+[ubuntu]
+
+172.16.4.188 ansible_ssh_user=kali
+#10.151.52.190 ansible_ssh_user=orlando.ferraz
+#10.151.52.176 ansible_ssh_user=orlando.ferraz
