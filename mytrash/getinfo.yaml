@@ -1,0 +1,43 @@
+---
+- name: Gather Host Information
+  hosts: ubuntu
+  gather_facts: yes
+
+  tasks:
+    - name: Execute df command for a specific mount point
+      command: df -h /
+      register: df_output
+      changed_when: false
+
+    - name: Display Hostname
+      debug:
+        var: ansible_hostname
+
+    - name: Display VCPUs
+      debug:
+        var: ansible_processor_vcpus
+
+    - name: Display Memory
+      debug:
+        var: ansible_memtotal_mb
+      
+    #- name: Display Disk Size
+      #debug:
+        #var: ansible_mounts[0].size_total  # Assumes the first mounted filesystem
+        #var: (ansible_mounts[1].size_total / (1024 ** 3) | int ) 
+        #var: ansible_mounts | json_query('[*].size_total | sum')
+
+    - name: Save gathered information to a local variable
+      set_fact:
+        host_info:
+          hostname: "{{ ansible_hostname }}"
+          vcpus: "{{ ansible_processor_vcpus }}"
+          memory: "{{ ansible_memtotal_mb }}"
+          #disk_size: "{{ ansible_mounts[0].size_total }}"
+          #disk_size: "{{ (ansible_mounts[1].size_total / (1024 ** 3)) | int }} GB"
+          #disk_size: "{{ ansible_mounts | json_query('[*].size_total | sum') }} bytes"
+          disk_size: "{{ df_output }}"
+
+    - name: Display gathered information
+      debug:
+        var: host_info

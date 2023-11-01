@@ -1,0 +1,45 @@
+---
+# Valida se já VM existe antes de criar
+- name: Check VM
+  uri:
+    url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/?name={{ node.name | upper}}
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: vm_result
+
+# Cria Vm se não existir 
+- name: Create VM
+  uri:
+     url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/
+     method: POST
+     body: "{\"name\": \"{{ node.name  | upper }}\",\"status\": 1,\"cluster\": \"{{ proxmox_id.json.results[0].id }}\" }"
+     body_format: json
+     status_code: 200,201
+     headers:
+       Content-Type: "application/json"
+       Accept: "application/json"
+       Authorization: "Token {{ netbox_token }}"
+     validate_certs: no
+  when: vm_result.json.count == 0
+  register: vm_create_result
+
+- debug:
+    var: vm_create_result
+
+# Coloca data relativa a VM
+- name: Set VM Data
+  uri:
+     url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/{{ vm_create_result.json.id | default(vm_result.json.results[0].id) }}/
+     method: PATCH
+     body: "{\"vcpus\":{{ node.maxcpu }}, \"memory\":{{ (node.maxmem / 1024 / 1024) | round(0, 'common') }}, \"disk\":{{ (node.maxdisk / 1024 / 1024 / 1024) | round(0,'common') }}, \"comments\":\"VM ID: {{ node.vmid }} \\n OWNER: {{ node.pool | default ('') }}\" }"
+     body_format: json
+     status_code: 200,201
+     headers:
+       Content-Type: "application/json"
+       Accept: "application/json"
+       Authorization: "Token {{ netbox_token }}"
+     validate_certs: no

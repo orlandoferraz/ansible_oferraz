@@ -1,0 +1,26 @@
+vm_cluster: "Proxmox%20AO%20PP"  # Nome do Proxmox em Netbox (Proxmox AO, Proxmox AO PP, Proxmox LX)
+status: "active" #sem uso (for_while)
+
+#Informações abaixo pegar nas máquinas
+vm_name: "TLT-DC-OFERRAZ"
+cpu: 2 
+memory: 4096
+disk: 50
+#falta ip
+
+#NIC Info
+nics:
+  1:
+    name: eth0
+    ipaddr: 192.168.1.10
+  2:
+    name: eth1
+    ipaddr: 192.168.1.20
+    prefix: 24
+  3:
+    name: eth2
+    ipaddr: 10.10.123.252
+  4: 
+    name: FE
+    ipaddr: 192.168.1.30
+

@@ -1,0 +1,43 @@
+---
+- name: Get Interface and Hostname Information
+  hosts: localhost
+  gather_facts: yes
+
+  tasks:
+    - name: Gather network interface information
+      ansible.builtin.setup:
+        filter: ansible_interfaces
+      register: interface_facts
+
+    - name: Save network interface information to a variables file
+      ansible.builtin.template:
+        src: network_interfaces.j2  # Create a Jinja2 template file
+        dest: "/home/oferraz/host_data/network_interfaces_{{ inventory_hostname }}.yml"
+
+    - name: Gather hostname
+      ansible.builtin.setup:
+        filter: ansible_hostname
+      register: hostname_facts
+
+    - name: Save hostname information to a variables file
+      ansible.builtin.template:
+        src: hostname.j2  # Create a Jinja2 template file
+        dest: "/home/oferraz/host_data/hostname_{{ inventory_hostname }}.yml"
+
+
+
+#---
+#- name: Get Network Interfaces
+  #hosts: localhost
+  #gather_facts: yes  # Enable fact gathering
+
+  #tasks:
+    #- name: Gather network interfaces
+      #ansible.builtin.setup:
+        f#ilter: ansible_interfaces
+      #register: network_interface_facts
+
+    #- name: Save network interfaces to vars file
+      #ansible.builtin.copy:
+        #content: "{{ network_interface_facts.ansible_facts }}"
+        #dest: "/home/oferraz/host_data/network_interfaces_vars.yml"

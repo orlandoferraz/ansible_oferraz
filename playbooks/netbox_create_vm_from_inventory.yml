@@ -1,0 +1,74 @@
+---
+- hosts: netbox
+  name: Create VM From Inventory
+  gather_facts: False
+
+
+  vars_files:
+    - "/home/oferraz/ansible_netbox/host_vars/vault.yml"
+    - "/home/oferraz/ansible_netbox/vars_files/vm_from_inventory.yaml"
+
+  tasks:
+   # Obter ID do Cluster
+   - name: Get VM Cluster
+     uri:
+       url: "https://netbox.infra.zap.intra/api/virtualization/clusters/?name={{ vm_cluster }}"
+       method: GET
+       headers:
+         Content-Type: "application/json"
+         Accept: "application/json"
+         Authorization: "Token {{ netbox_token }}"
+       validate_certs: no
+     register: cluster_result
+
+   - set_fact:
+       cluster_id: "{{ cluster_result.json.results[0].id }}"
+     when: cluster_result.status == 200 and cluster_result.json.results | length > 0
+
+   # Verificar se VM já está criada em Netbox
+   - name: Check VM
+     uri:
+        url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/?name={{ vm_name }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: vm_result
+
+   - set_fact:
+       vm_count: "{{ vm_result.json.count }}"
+
+   # Criar VM
+   - name: Create VM
+     uri:
+        url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/
+        method: POST
+        body: "{\"name\": \"{{ vm_name }}\",\"status\": 1,\"cluster\": {{ cluster_id }},\"vcpus\":{{ cpu }},\"memory\":{{ memory }},\"disk\":{{ disk }}}" 
+        body_format: json
+        status_code: 200,201
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: vm_create_result
+     when: vm_count == "0"
+
+   - set_fact:
+       vm_id: "{{ vm_create_result.json.id }}"
+     when: vm_count == "0"
+
+   - set_fact:
+       vm_id: "{{ vm_result.json.results[0].id }}"
+     when: vm_count == "1"
+
+   # Criar Interfaces em Netbox
+   - include_tasks: /home/oferraz/ansible_netbox/tasks/netbox_create_interfaces.yml
+     vars: 
+       interface_name: "{{ item.value.name }}"
+       is_vm: true
+       machine_id: "{{ vm_id }}"
+       ip_address: "{{ item.value.ipaddr }}"
+     with_dict: "{{ nics }}"

@@ -1,0 +1,5 @@
+---
+- include_tasks: ../tasks/proxmox_get_vm_ips.yml 
+  with_items: "{{ vm_list.json.data }}"
+  loop_control:
+     loop_var: vms

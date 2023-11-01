@@ -1,0 +1,44 @@
+---
+- debug: 
+     var: vms.vmid
+
+- name: Get VM
+  uri:
+    url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/?name={{ vms.name | upper}}
+    method: GET 
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"  
+    validate_certs: no
+  register: vm_result
+
+- name: Get IPs
+  uri:
+    url: https://netbox.infra.zap.intra/api/ipam/ip-addresses/?virtual_machine_id={{ vm_result.json.results[0].id }}
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  when: vm_result.json.count != 0
+  register: vm_ips_result
+
+- include_tasks: ../tasks/netbox_map_ip_vlan.yml
+  with_items: "{{ vm_ips_result.json.results }}"
+  loop_control:
+     loop_var: ip
+  when: 
+      - vm_result.json.count != 0
+      - vm_ips_result.json.count != 0 
+
+- include_tasks: ../tasks/proxmox_set_ip_notes.yml
+  vars:
+    vmid: "{{ vms.vmid }}"
+  when: 
+      - vm_result.json.count != 0
+      - vm_ips_result.json.count != 0
+
+- set_fact:
+     ip_role_dict: {}

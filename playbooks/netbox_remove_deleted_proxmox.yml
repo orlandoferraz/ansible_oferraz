@@ -1,0 +1,88 @@
+---
+- hosts: localhost
+  name: Remove Deleted Proxmox VM from NetBox
+  gather_facts: False
+
+  vars:
+    # host ou IP da interface GUI e API do Proxmox
+    - api_host: 10.151.53.81:8006
+    # Nome Cluster Proxmox criado em Netbox (Proxmox AO PP, Proxmox AO, Proxmox LX, Proxmox VN)
+    - proxmox: "Proxmox AO PP" 
+  vars_files:
+    - "/etc/ansible/vault/vault.yml"
+
+  tasks:
+   # Obter ID do Cluster Proxmox em Netvault para associar na VM 
+   - name: Get Proxmox ID
+     uri:
+        url: https://netbox.infra.zap.intra/api/virtualization/clusters/?q={{ proxmox | replace(' ','%20') }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: proxmox_id
+
+   # Criar Sessão na API do Proxmox
+   - name: Create API Session
+     uri:
+        url: https://{{ api_host }}/api2/json/access/ticket
+        method: POST
+        validate_certs: no
+        body_format: form-urlencoded
+        body:
+          username: "{{ pve_user }}"
+          password: "{{ pve_pass }}"
+     register: session
+
+   # Obter Nós do Cluster Proxmox
+   - name: Get All Nodes
+     uri:
+        url: https://{{ api_host }}/api2/json/nodes
+        method: GET
+        validate_certs: no
+        headers:
+          Cookie: "PVEAuthCookie={{ session.json.data.ticket }}"
+     register: api_nodes
+
+   # Obter VMs de todos os Nós do Cluster
+   - name: Get All Proxmox VMs
+     uri:
+        url: https://{{ api_host }}/api2/json/nodes/{{ api_nodes.json.data[node_idx | int].node }}/qemu
+        method: GET
+        validate_certs: no
+        headers:
+          Cookie: "PVEAuthCookie={{ session.json.data.ticket }}"
+     with_sequence: start=0 end="{{ api_nodes.json.data | length - 1}}"
+     loop_control:
+       loop_var: node_idx
+     register: pxmx_vms
+
+   - name: Get All Netbox VMs
+     uri:
+        url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/?cluster_id={{ proxmox_id.json.results[0].id }}&limit=1000
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: nb_vms
+
+   - set_fact:
+        pxmx_vms_names: "{{pxmx_vms_names | default([]) + item.json.data | map(attribute='name') | list }}" 
+     with_items: "{{ pxmx_vms.results }}"
+
+   - name: Delete Netbox VMs
+     uri:
+        url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/{{ item.id }}/
+        method: DELETE
+        status_code: 200,201,204
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     with_items: "{{ nb_vms.json.results }}"
+     when: 'item.name | upper not in pxmx_vms_names | upper'

@@ -1,0 +1,56 @@
+---
+- hosts: VMs_centos_AO_PP
+  name: Netbox Import from Server
+  gather_facts: False
+  become: yes
+  serial: 1
+
+  vars:
+    is_vm: true
+
+  vars_files:
+    - "/etc/ansible/vault/vault.yml"
+
+  tasks:
+   # Obter hostname do servidor
+   - name: Get Hostname
+     shell: hostname
+     register: hostname_res
+
+   - set_fact:
+        hostname: "{{ hostname_res.stdout.split('.')[0] }}"
+
+   - name: Check VM
+     uri:
+        url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/?name={{ hostname | upper }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: device_result
+     delegate_to: localhost
+
+   - set_fact:
+       device_count: "{{ device_result.json.count }}"
+
+   - name: Fail If VM Not Found
+     fail:
+       msg: "Hostname: {{ hostname }} not found in Netbox"
+     when: device_count == "0"
+
+   - set_fact:
+       device_id: "{{ device_result.json.results[0].id }}"
+
+  # Obter lista de ficheiros de configuração das interfaces
+   - name: Get Ifconfig Files
+     shell: ls /etc/sysconfig/network-scripts/ifcfg-* | grep -v "lo" | grep -v ".bak" | grep -v ".old"
+     register: ifcfg_files
+
+   # Correr lista de ficheiros para criar interfaces no Netbox
+   - name: Get If configs
+     include_tasks: ../tasks/netbox_create_interfaces_from_networkscripts.yml
+     vars:
+       ifcfg_file: "{{ item }}"
+     with_items: "{{ ifcfg_files.stdout_lines }}"

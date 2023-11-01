@@ -1,0 +1,60 @@
+---
+- hosts: Devices
+  name: Netbox Import from Server
+  gather_facts: False
+  become: yes
+  serial: 1
+
+  vars:
+    is_vm: false
+
+  vars_files:
+    - "/etc/ansible/vault/vault.yml"
+
+  tasks:
+   # Obter hostname do servidor
+   - name: Get Hostname
+     shell: hostname
+     register: hostname_res
+
+   - set_fact:
+        hostname: "{{ hostname_res.stdout.split('.')[0] }}"
+
+   # verificar se o servidor existe no Netbox
+   - name: Check Device
+     uri:
+        url: https://netbox.infra.zap.intra/api/dcim/devices/?name={{ hostname | upper}}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: device_result
+     delegate_to: localhost
+
+   - set_fact:
+       device_count: "{{ device_result.json.count }}"
+
+   - name: Fail If Device Not Found
+     fail:
+       msg: "Hostname: {{ hostname }} not found in Netbox"
+     when: device_count == "0"
+
+   - set_fact:
+       device_id: "{{ device_result.json.results[0].id }}"
+     when: device_result.json.count == 1
+ 
+   # Obter lista de ficheiros de configuração das interfaces
+   - name: Get Ifconfig Files
+     shell: ls /etc/sysconfig/network-scripts/ifcfg-* -I /etc/sysconfig/network-scripts/ifcfg-lo
+     register: ifcfg_files
+     when: device_count == "1"
+
+   # Correr lista de ficheiros para criar interfaces no Netbox
+   - name: Get If configs
+     include_tasks: ../tasks/netbox_create_interfaces_from_networkscripts.yml
+     vars:
+       ifcfg_file: "{{ item }}"
+     with_items: "{{ ifcfg_files.stdout_lines }}"
+     when: device_count == "1"

@@ -1,0 +1,128 @@
+---
+# definir variáveis para VM
+- set_fact:
+    api_url: "virtualization/interfaces"
+    device_url: "virtualization/virtual-machines"
+    device_type: "virtual_machine"
+  when: is_vm == true
+  delegate_to: localhost
+
+# definir variáveis para servidor físico
+- set_fact:
+    api_url: "dcim/interfaces"
+    device_url: "dcim/devices"
+    device_type: "device"
+  when: is_vm == false
+  delegate_to: localhost
+
+# verificar se interface já existe
+- name: Check for Interface
+  uri:
+    url: https://netbox.infra.zap.intra/api/{{ api_url }}/?name={{ interface_name }}&{{ device_type }}_id={{ machine_id }}
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: check_interface_result
+  delegate_to: localhost
+
+- set_fact:
+    if_count: "{{ check_interface_result.json.count }}"
+
+# Cria Interface se não existe
+- name: Create Interface
+  uri:
+    url: https://netbox.infra.zap.intra/api/{{ api_url }}/
+    method: POST
+    body: "{\"enabled\": \"true\",\"name\":\"{{ interface_name }}\",\"{{ device_type }}\": \"{{ machine_id }}\"}"
+    body_format: json
+    status_code: 200,201
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: if_result
+  when: if_count == "0"
+  delegate_to: localhost
+
+- set_fact:
+    if_id: "{{ if_result.json.id }}"
+  when: if_count == "0"
+
+- set_fact:
+    if_id: "{{ check_interface_result.json.results[0].id }}"
+  when: if_count == "1"
+
+# Verfica se IP já existe
+- name: Check for IP
+  uri:
+    url: https://netbox.infra.zap.intra/api/ipam/ip-addresses/?address={{ ip_address }}
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: ip_result
+  delegate_to: localhost
+
+- set_fact:
+    ip_count: "{{ ip_result.json.count }}"
+
+# Criar IP
+- name: Create IP
+  uri:
+    url: https://netbox.infra.zap.intra/api/ipam/ip-addresses/
+    method: POST
+    body: "{\"address\":\"{{ ip_address }}\",\"status\": 1,\"description\": \"{{ interface_name }}\",\"interface\":\"{{ if_id }}\"}"
+    body_format: json
+    status_code: 200,201
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: ip_create_result
+  when: ip_count == "0"
+  delegate_to: localhost
+
+- set_fact:
+    ip_id: "{{ ip_create_result.json.id }}"
+  when: ip_count == "0"
+
+- set_fact:
+    ip_id: "{{ ip_result.json.results[0].id }}"
+  when: ip_count == "1"
+
+# Obter Prefixo para obter contexto do IP
+- name: Get IP Prefix
+  uri:
+    url: https://netbox.infra.zap.intra/api/ipam/prefixes/?q={{ ip_address }}
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: prefix_result
+  delegate_to: localhost
+
+# Mapear IP 
+- name: Map IP
+  uri:
+    url: https://netbox.infra.zap.intra/api/{{ device_url }}/{{ machine_id }}/
+    method: PATCH
+    body: "{\"primary_ip4\": \"{{ ip_id }}\"}"
+    body_format: json
+    status_code: 200,201
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  when: prefix_result.json.results[0].role.slug == "MGT"
+  delegate_to: localhost
+

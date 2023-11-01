@@ -1,0 +1,197 @@
+---
+# Validar se Chassis já foi criado
+- name: Check Chassis
+  uri:
+     url: https://netbox.infra.zap.intra/api/dcim/devices/?name={{ device.DeviceName }}
+     method: GET
+     headers:
+       Content-Type: "application/json"
+       Accept: "application/json"
+       Authorization: "Token {{ netbox_token }}"
+     validate_certs: no
+  register: device_result
+
+- set_fact:
+    device_count: "{{ device_result.json.count }}"
+
+# Obter ID do tipo de Chassis
+- name: Check Device Type
+  uri:
+     url: https://netbox.infra.zap.intra/api/dcim/device-types/?model={{ device.Model | replace(' ', '%20') }}
+     method: GET
+     headers:
+       Content-Type: "application/json"
+       Accept: "application/json"
+       Authorization: "Token {{ netbox_token }}"
+     validate_certs: no
+  register: device_type_result
+  when: device_count == "0"
+
+- set_fact:
+    device_type_id: "{{ device_type_result.json.results[0].id }}"
+  when: device_count == "0"
+
+# Criar Chassis
+- name: Create Device
+  uri:
+     url: https://netbox.infra.zap.intra/api/dcim/devices/
+     method: POST
+     body: "{\"name\": \"{{ device.DeviceName }}\",\"status\": 1,\"device_type\":{{ device_type_id }},\"device_role\":{{ device_role_id }},\"site\":{{ site_id }}}" 
+     body_format: json
+     status_code: 200,201
+     headers:
+       Content-Type: "application/json"
+       Accept: "application/json"
+       Authorization: "Token {{ netbox_token }}"
+     validate_certs: no
+  register: device_create_result
+  when: device_count == "0"
+
+- set_fact:
+    device_id: "{{ device_create_result.json.id }}"
+  when: device_count == "0"
+
+- set_fact:
+    device_id: "{{ device_result.json.results[0].id }}"
+  when: device_count == "1"
+
+# Verificar se Interface já está criada
+- name: Check Interface
+  uri:
+    url: https://netbox.infra.zap.intra/api/dcim/interfaces/?name={{ device.DeviceName }}-LO
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: vm_interface_result
+
+- set_fact:
+    vm_if_count: "{{ vm_interface_result.json.count }}"
+
+# Cria Interface em Netbox
+- name: Create Interface
+  uri:
+    url: https://netbox.infra.zap.intra/api/dcim/interfaces/
+    method: POST
+    body: "{\"enabled\": \"true\",\"name\":\"{{ device.DeviceName }}-LO\",\"device\": \"{{ device_id }}\"}"
+    body_format: json
+    status_code: 200,201
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: vm_if_result
+  when: vm_if_count == "0"
+
+- set_fact:
+     if_id: "{{ vm_if_result.json.id }}"
+  when: vm_if_count == "0"
+
+- set_fact:
+     if_id: "{{ vm_interface_result.json.results[0].id }}"
+  when: vm_if_count == "1"
+
+# Verificar se IP existe
+- name: Check IP
+  uri:
+    url: https://netbox.infra.zap.intra/api/ipam/ip-addresses/?address={{ device.DeviceManagement[0].NetworkAddress }}
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: ip_result
+
+- set_fact:
+    ip_count: "{{ ip_result.json.count }}"
+
+- name: Create IP
+  uri:
+    url: https://netbox.infra.zap.intra/api/ipam/ip-addresses/
+    method: POST
+    body: "{\"address\": \"{{ device.DeviceManagement[0].NetworkAddress }}\",\"status\": 1,\"description\": \"{{ device.DeviceName }}-LO\",\"interface\":\"{{ if_id }}\"}"
+    body_format: json
+    status_code: 200,201
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no  
+  register: ip_create_result
+  when: ip_count == "0"
+
+- set_fact:
+     ip_id: "{{ ip_create_result.json.id }}"
+  when: ip_count == "0"
+
+- set_fact:
+     ip_id: "{{ ip_result.json.results[0].id }}"
+  when: ip_count == "1"
+
+# Mapear Ip de Gestão no Chassis 
+- name: Map Mgt IP
+  uri:
+    url: https://netbox.infra.zap.intra/api/dcim/devices/{{ device_id }}/
+    method: PATCH
+    body: "{\"primary_ip4\": \"{{ ip_id }}\"}"
+    body_format: json
+    status_code: 200,201
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+
+# Obter Quantidade de Slots
+- name: Get Blade Count OME
+  uri:
+    url: https://{{ OME_server_ip }}/api/DeviceService/Devices({{ device.Id }})/DeviceBladeSlots
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      x-auth-token: "{{ auth_result.x_auth_token }}"
+    status_code: 200,201
+    validate_certs: False
+    return_content: yes
+    body_format: json
+  register: blade_result
+  when: device_count == "0"
+
+# Verifica se as Slots já estão criadas 
+- name: Get Blade Count Netbox
+  uri:
+    url: https://netbox.infra.zap.intra/api/dcim/device-bays/
+    method: GET
+    body_format: json
+    status_code: 200,201
+    headers:
+       Content-Type: "application/json"
+       Accept: "application/json"
+       Authorization: "Token {{ netbox_token }}"       
+    body_format: json
+    validate_certs: no
+  register: blade_count_result
+  when: device_count == "0"
+
+# Criar Slots
+- name: Create Blades
+  uri:
+     url: https://netbox.infra.zap.intra/api/dcim/device-bays/
+     method: POST
+     body: "{\"name\": \"Blade{{ blade_item.SlotNumber }}-{{ device.DeviceName }}\",\"device\":{{ device_id }}}"
+     body_format: json
+     status_code: 200,201
+     headers:
+       Content-Type: "application/json"
+       Accept: "application/json"
+       Authorization: "Token {{ netbox_token }}"
+     validate_certs: no
+  with_items: "{{ blade_result.json.value }}"
+  loop_control:
+    loop_var: blade_item
+  when: device_count == "0"

@@ -1,0 +1,31 @@
+---
+- hosts: netbox
+  name: Importar Vlans de CSV para Netbox
+  gather_facts: False
+
+  vars_files:
+  - "/home/oferraz/ansible_netbox/host_vars/vault.yml"
+
+  tasks:
+   # Ler ficheiro com Vlans
+   - name: "Reading VLANs information"
+     read_csv:
+       path: "/home/oferraz/ansible_netbox/vars_files/netbox_create_vlan.csv"
+       fieldnames: site,vid,name,status,des,ip,rol
+       delimiter: ','
+     register: vlans
+     delegate_to: localhost
+
+   # Correr Vlans no ficheiro e criar em Netbox
+   - include_tasks: /home/oferraz/ansible_netbox/tasks/netbox_create_vlan.yml
+     vars:
+       vid: "{{ vlan.vid }}"
+       v_name: "{{ vlan.name }}"
+       vlan_network: "{{ vlan.ip }}"
+       vlan_status: "{{ vlan.status }}"
+       vlan_description: "{{ vlan.des }}"
+       vlan_site: "{{ vlan.site }}"
+       vlan_role: "{{ vlan.rol }}"
+     loop: "{{ vlans.list }}"
+     loop_control:
+       loop_var: vlan 

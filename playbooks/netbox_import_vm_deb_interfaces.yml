@@ -1,0 +1,69 @@
+---
+- hosts: VMs_debian_AO
+  name: Netbox Import from Server
+  gather_facts: False
+  become: yes
+  serial: 1
+
+  vars:
+    is_vm: true
+
+  vars_files:
+    - "/etc/ansible/vault/vault.yml"
+
+  tasks:
+   # Obter hostname do servidor
+   - name: Get Hostname
+     shell: hostname
+     register: hostname_res
+
+   - set_fact:
+        hostname: "{{ hostname_res.stdout.split('.')[0] }}"
+
+   - name: Check VM
+     uri:
+        url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/?name={{ hostname | upper }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: device_result
+     delegate_to: localhost
+
+   - set_fact:
+       device_count: "{{ device_result.json.count }}"
+
+   - name: Fail If VM Not Found
+     fail:
+       msg: "Hostname: {{ hostname }} not found in Netbox"
+     when: device_count == "0"
+
+   - set_fact:
+       device_id: "{{ device_result.json.results[0].id }}"
+
+  # Obter lista de ficheiros de configuração das interfaces
+   - name: Get Ifconfig Files
+     shell: cat /etc/network/interfaces
+     register: ifcfg
+
+   - name: Write output to file
+     local_action: copy content="{{ifcfg.stdout}}" dest=~/{{hostname}}_ifaces
+
+   - name: Parse output  
+     shell: cat ~/{{hostname}}_ifaces | /etc/ansible/ansible_netbox/scripts/parse_interfaces.awk 
+     register: parse_out
+     delegate_to: localhost
+
+   - set_fact:
+        ifaces: "{{ ifaces | default({}) | combine ({ item.split('=')[0]:  item.split('=')[1] }) }}"
+     with_items: "{{ parse_out.stdout_lines }}"
+
+   - include_tasks: ../tasks/netbox_create_interfaces.yml
+     vars:
+        interface_name: "{{ item.key | replace(' ','') | replace('\"','') }}"
+        machine_id: "{{ device_id }}"
+        ip_address: "{{ item.value | replace('\"','') }}" 
+     with_dict: "{{ ifaces }}" 
+     when: "item.value != '127.0.0.1'"

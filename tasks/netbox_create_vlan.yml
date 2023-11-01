@@ -1,0 +1,84 @@
+---
+# validar se a vlan já existe
+- name: Check Vlan 
+  uri:
+    url: https://netbox.infra.zap.intra/api/ipam/vlans/?vid={{ vid }}
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: vlan_result
+
+- set_fact:
+    vlan_exists: "{{ vlan_result.json.count }}"
+
+# se a vlan não existir, cria
+- name: Create Vlan
+  uri:
+     url: https://netbox.infra.zap.intra/api/ipam/vlans/
+     method: POST
+     body: "{\"site\": {{ vlan.site }},\"vid\": \"{{ vid }}\",\"name\":\"{{ v_name }}\" ,\"status\": {{ vlan_status }},\"description\":\"{{ vlan_description }}\",\"role\":{{ vlan_role }}}"
+     body_format: json
+     status_code: 200,201
+     headers:
+       Content-Type: "application/json"
+       Accept: "application/json"
+       Authorization: "Token {{ netbox_token }}"
+     validate_certs: no
+  register: vlan_create_result
+  when: vlan_exists == "0"
+
+# guardar vlan id registado no netbox, não o vlan id que Rede IP define
+- set_fact:
+    vlan_id: "{{  vlan_create_result.json.id }}"
+  when: vlan_exists == "0"
+
+- set_fact:
+    vlan_id: "{{ vlan_result.json.results[0].id }}"
+  when: vlan_exists == "1"
+
+# validar se o prefix já existe
+- name: Check Prefix
+  uri:
+    url: https://netbox.infra.zap.intra/api/ipam/prefixes/?q={{ vlan_network }}
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: prefix_result
+
+- set_fact:
+    prefix_exists: "{{ prefix_result.json.count }}"
+
+# obter o contexto da vlan (FE,BE ou MGT)
+- name: Get Vlan Role
+  uri:
+    url: https://netbox.infra.zap.intra/api/ipam/roles/?slug={{ vlan_role }}
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: role_result
+  when: prefix_exists == "0"
+
+# cria o prefixo, se não existir
+- name: Create Prefix
+  uri:
+     url: https://netbox.infra.zap.intra/api/ipam/prefixes/
+     method: POST
+     body: "{\"prefix\":\"{{ vlan_network }}\",\"site\": {{ vlan_site }}, \"vlan\": {{ vlan_id }},\"status\":{{ vlan_status }},\"is_pool\":\"false\",\"role\": {{ vlan_role }} }"
+     body_format: json
+     status_code: 200,201
+     headers:
+       Content-Type: "application/json"
+       Accept: "application/json"
+       Authorization: "Token {{ netbox_token }}"
+     validate_certs: no
+  register: vlan_create_result
+  when: prefix_exists == "0"

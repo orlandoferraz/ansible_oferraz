@@ -1,0 +1,27 @@
+---
+- name: Gather Information and Save to YAML
+  hosts: ubuntu  # Replace with the hostname or IP address of the target host
+  gather_facts: yes
+
+  tasks:
+    - name: Gather system facts
+      setup:
+        gather_subset: hardware
+
+    - name: Create a dictionary with gathered information
+      set_fact:
+        host_info:
+          hostname: "{{ inventory_hostname }}"
+          vcpus: "{{ inventory_processor_vcpus }}"
+          memory: "{{ ansible_facts['ansible_memtotal_mb'] }} MB"
+          disk:
+            - name: "{{ item.key }}"
+              size: "{{ item.value.size_total | human_readable }}"
+              filesystem: "{{ item.value.fstype }}"
+          with_dict: "{{ ansible_facts['ansible_mounts'] }}"
+      run_once: yes  # Gathered facts apply to the target host
+
+    - name: Save host information to a YAML file on the control machine
+      copy:
+        content: "{{ host_info | to_nice_yaml(indent=2) }}"
+        dest: /host_data/file00.yaml

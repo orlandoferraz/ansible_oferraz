@@ -1,0 +1,5 @@
+netbox_token: 8dd1fb4ab7a7f147276c882148ea79ec0046c44d
+api_url: "dcim/interface"
+device_url: "dcim/devices"
+device_type: "device"
+servername: "TLT-TEST"

@@ -1,0 +1,20 @@
+---
+- name: Gather Interface Information
+  hosts: netbox
+  tasks:
+    - name: Gather interface information
+      ansible.builtin.shell: |
+        # Collect interface information using the ip command and save it to a file
+        for interface in $(ip -o addr show | awk -F'[ \t]+|/' '{print $2}'); do
+          echo "Interface: $interface" >> /tmp/interface_info.txt
+          ip addr show $interface | grep -w 'inet' | awk '{print "IP Address: " $2, "Prefix: " $1}' >> /tmp/interface_info.yml
+          echo "" >> /tmp/interface_info.yml
+        done
+      delegate_to: localhost
+      register: interface_info
+
+    - name: Save interface information to a local file
+      ansible.builtin.copy:
+        content: "{{ interface_info.stdout_lines | join('\n') }}"
+        dest: "/home/oferraz/host_data/interface_info_{{ inventory_hostname }}.yml"
+      delegate_to: localhost

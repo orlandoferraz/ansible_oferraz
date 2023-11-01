@@ -1,0 +1,33 @@
+---
+- name: Check VM
+  uri:
+    url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/?name={{ node_vm.name | upper}}
+    method: GET
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: no
+  register: vm_result
+
+- debug:
+      var: vm_result
+
+- include_tasks: ../tasks/netbox_set_vm_pool.yml
+  with_items: "{{ api_pools_vms.results }}"
+  loop_control:
+      loop_var: pool_vms
+  when: api_pools_vms.results | length > 0
+
+- name: Set VM Data
+  uri:
+     url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/{{ vm_result.json.results[0].id }}/
+     method: PATCH
+     body: "{\"vcpus\":{{ node_vm.cpus }}, \"memory\":{{ (node_vm.maxmem / 1024 / 1024) | round(0, 'common') }}, \"disk\":{{ (node_vm.maxdisk / 1024 / 1024 / 1024) | round(0,'common') }}, \"comments\":\"VM ID: {{ node_vm.vmid }} \\n OWNER: {{ vm_pool | default ('') }}\" }"
+     body_format: json
+     status_code: 200,201
+     headers:
+       Content-Type: "application/json"
+       Accept: "application/json"
+       Authorization: "Token {{ netbox_token }}"
+     validate_certs: no

@@ -1,0 +1,43 @@
+---
+
+- set_fact:
+    vid: "{{item.key}}"
+    pxmx: "{{item.value}}"
+  loop: "{{ lookup('dict', map) }}" 
+  when: vmid == item.key 
+
+- debug: 
+     var: vmid
+
+- name: Get Config
+  uri:
+    url: https://{{ api_host }}/api2/json/nodes/{{ pxmx }}/qemu/{{ vid }}/config
+    method: GET 
+    headers:
+          Cookie: "PVEAuthCookie={{ session.json.data.ticket }}"
+    validate_certs: no
+  register: vm_conf_result
+
+- set_fact: 
+    ips: "{{ ips | default('') + item.value + ': ' +item.key.split('/')[0] + '\n'}}"
+  with_dict: "{{ ip_role_dict }}"
+  when: 
+     - (vm_conf_result.json.data.description | default('')).find(item.key.split("/")[0]) == -1
+
+- set_fact:
+    descr: "{{ vm_conf_result.json.data.description | default('') + '\n\n\n' + ips | default('') }}"
+
+- set_fact:
+    ips: ""
+
+- name: Set Description
+  uri:
+    url: https://{{ api_host }}/api2/json/nodes/{{ pxmx }}/qemu/{{ vid }}/config
+    method: PUT
+    headers:
+          Cookie: "PVEAuthCookie={{ session.json.data.ticket }}"
+          CSRFPreventionToken: "{{ session.json.data.CSRFPreventionToken }}"
+    body: 
+          description: "{{ descr }}"
+    body_format: form-urlencoded
+    validate_certs: no

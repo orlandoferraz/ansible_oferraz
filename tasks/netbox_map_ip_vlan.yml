@@ -1,0 +1,14 @@
+---
+- name: Get Prefix
+  uri:
+     url: https://netbox.infra.zap.intra/api/ipam/prefixes/?q={{ ip.address }}
+     method: GET 
+     validate_certs: no
+     headers:
+        Content-Type: "application/json"
+        Accept: "application/json" 
+        Authorization: "Token {{ netbox_token }}"
+  register: prefix_result
+
+- set_fact:
+     ip_role_dict: "{{ ip_role_dict | default({}) | combine( { ip.address: prefix_result.json.results[0].role.slug | default('') } ) }}"

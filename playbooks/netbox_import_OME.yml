@@ -1,0 +1,89 @@
+---
+- hosts: localhost
+  name: Get Servers OME
+  gather_facts: False
+  vars:
+    # IP do OME
+    OME_server_ip: 10.151.154.10
+  vars_files:
+    - "/etc/ansible/vault/vault.yml"
+
+  tasks:
+# criar sessão API no OME
+   - name: Create API Session
+     uri:
+       url: https://{{ OME_server_ip }}/api/SessionService/Sessions
+       method: POST
+       body: "{\"UserName\":\"{{ OME_username }}\",\"Password\":\"{{ OME_password }}\",\"SessionType\": \"API\"}"
+       headers:
+         Content-Type: "application/json"
+         Accept: "application/json"
+       status_code: 200,201
+       validate_certs: False
+       return_content: yes
+       body_format: json
+     register: auth_result
+
+   - set_fact: {"{{item.key}}":"{{item.value}}"}
+     with_dict: "{{auth_result.content}}"
+
+# obter todas as máquinas do tipo Chassis
+   - name: Get All Chassis
+     uri:
+       url: https://{{ OME_server_ip }}/api/DeviceService/Devices?$filter=Type%20eq%202000
+       method: GET
+       headers:
+         Content-Type: "application/json"
+         Accept: "application/json"
+         x-auth-token: "{{ auth_result.x_auth_token }}"
+       status_code: 200,201
+       validate_certs: False
+     register: ome_chassis_result
+
+   - include_tasks: ../tasks/netbox_create_chassis_OME.yml
+     vars:
+       device: "{{ item }}"
+       device_role_id: 2
+       site_id: 1
+     with_items: "{{ ome_chassis_result.json.value }}"
+
+# obter todas as máquinas do tipo Server
+   - name: Get All Servers
+     uri:
+       url: https://{{ OME_server_ip }}/api/DeviceService/Devices?$filter=Type%20eq%201000
+       method: GET
+       headers:
+         Content-Type: "application/json"
+         Accept: "application/json"
+         x-auth-token: "{{ auth_result.x_auth_token }}"
+       status_code: 200,201
+       validate_certs: False
+     register: ome_result
+
+# Criar todos os Servidores existentes no Enclosure
+   - include_tasks: ../tasks/netbox_create_device_from_OME.yml
+     vars:
+       device_name: "{{ item.DeviceManagement[0].InstrumentationName | replace('.zap.intra','')}}"
+       device_model: "{{ item.Model | replace(' ', '%20') }}"
+       device_ip: "{{ item.DeviceManagement[0].NetworkAddress }}"
+       device_serial: "{{ item.DeviceServiceTag }}"
+       device_chassis_name: "{{ item.SlotConfiguration.ChassisName }}"
+       device_bay: "{{ item.SlotConfiguration.SlotNumber }}"
+       device_role_id: 1
+       site_id: 1
+     when: 
+       - item.DeviceManagement[0].InstrumentationName != "" 
+       - item.DeviceManagement[0].ManagementProfile[0].ManagementURL != "unknown"
+     with_items: "{{ ome_result.json.value }}"
+
+# apagar a sessão API
+   - name: Delete API Session
+     uri:
+       url: https://{{ OME_server_ip }}/api/SessionService/Sessions('{{Id}}')
+       method: DELETE
+       status_code: 204
+       validate_certs: False
+       headers:
+         Content-Type: "application/json"
+         Accept: "application/json"
+         x-auth-token: "{{ auth_result.x_auth_token }}"

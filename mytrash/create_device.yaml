@@ -1,0 +1,27 @@
+---
+- name: Check if device exists in NetBox
+  hosts: netbox
+  gather_facts: False
+
+  vars_files:
+    - "/home/oferraz/ansible_netbox/host_vars/172.18.33.74.yml"
+
+  tasks:
+    - name: Query NetBox for device
+      uri:
+        url: "https://netbox.infra.zap.intra/api/dcim/devices/?name={{ servername }}"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+      register: netbox_response
+
+    - name: Check if device exists
+      debug:
+        msg: "Device {{ servername }} exists in NetBox"
+      when: netbox_response.json.results | length < 0
+
+    - name: Check if device does not exist
+      debug:
+        msg: "Device {{ servername }} does not exist in NetBox"
+      when: netbox_response.json.results | length == 0

@@ -1,0 +1,106 @@
+---
+- hosts: localhost
+  name: Create Proxmox VM From Netbox
+  gather_facts: False
+  
+  vars:
+    # Nome da VM a criar
+    - servername: Teste-PXMX
+    # variável para nics a criar
+    - pve_net: {}
+  vars_files:
+    - "/etc/ansible/vault/vault.yml"
+
+  tasks:
+   # Obter VM do Netbox
+   - name: Get VM from Netbox
+     uri:
+        url: https://netbox.infra.zap.intra/api/virtualization/virtual-machines/?name={{ servername }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+     register: vm_result
+
+   # Obter Nics da VM 
+   - name: Get VM Interface from Netbox
+     uri:
+        url: https://netbox.infra.zap.intra/api/virtualization/interfaces/?virtual_machine_id={{ vm_result.json.results[0].id }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+     register: vm_ifs_result
+   
+   # Obter Ips das Nics
+   - name: Get VM IPs from Netbox
+     uri:
+        url: https://netbox.infra.zap.intra/api/ipam/ip-addresses/?interface_id={{ vm_ifs_result.json.results[item | int].id }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+     with_sequence: start=0 end={{ vm_ifs_result.json.count - 1 }}
+     register: vm_ips_result
+
+   # Obter Vlans a partir dos IPs
+   - name: Get VM Vlans from Netbox
+     uri:
+        url: https://netbox.infra.zap.intra/api/ipam/prefixes/?q={{ vm_ips_result.results[item | int].json.results[0].address }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+     with_sequence: start=0 end={{ vm_ifs_result.json.count - 1 }}
+     register: vm_vlans_result
+
+   # Criar variável com as nics no formato esperado pelo Proxmox
+   - name: Set Net Configs
+     set_fact:
+       pve_net: "{{ pve_net | combine( { 'net'~item:'e1000,bridge=vmbr0,tag='~vm_vlans_result.results[item | int].json.results[0].vlan.vid } )}}"
+     with_sequence: start=0 end={{ vm_ifs_result.json.count - 1 }}
+
+   # Criar variável para o Disco da VM, com o formato do Proxmox 
+   - name: Set Disk Config
+     set_fact:
+       pve_disk: "{{ {'virtio0':'iSCSI:'~vm_result.json.results[0].disk | default(20)~',format=raw'} }}"
+
+   - set_fact:
+       vm_count: "{{ vm_result.json.count }}"
+
+   # Número de cores "físicos" da VM
+   - set_fact:
+       pve_cores: "{{ vm_result.json.results[0].vcpus | int / 2 | round(0,'ceil')}}"
+
+   # Validar se a VM já está criada no Proxmox
+   - name: Check VM
+     proxmox_kvm:
+       api_user: "{{ pve_user }}"
+       api_password: "{{ pve_pass }}"
+       api_host: "{{ pve_host }}"
+       name: "{{ vm_result.json.results[0].name }}"
+       state: current
+     register: vm_exists_result
+     ignore_errors: True
+
+   # Cria VM se não existir
+   - name: Create VM
+     proxmox_kvm:
+       api_user: "{{ pve_user }}"
+       api_password: "{{ pve_pass }}"
+       api_host: "{{ pve_host }}"
+       name: "{{ vm_result.json.results[0].name }}"
+       net: "{{ pve_net }}"
+       virtio: "{{ pve_disk }}"
+       cores: "{{ pve_cores | int }}"
+       sockets: 2
+       onboot: no
+       memory: "{{ vm_result.json.results[0].memory }}"
+       ballon: "{{ vm_result.json.results[0].memory }}"
+       node: pxmx-pp02
+     when: vm_count == "1" and vm_exists_result.failed == true
+     register: vm_create_result

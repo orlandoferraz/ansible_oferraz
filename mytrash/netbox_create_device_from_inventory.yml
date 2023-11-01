@@ -1,0 +1,58 @@
+---
+- hosts: localhost
+  name: Create Device
+  gather_facts: False
+
+  vars_files:
+    - /home/oferraz/ansible_netbox/vars_files/TLT-TEST.yaml
+    #- "/etc/ansible/vault/vault.yml"
+    - "/home/oferraz/ansible_netbox/host_vars/172.18.33.74.yml"
+
+  tasks:
+   # Verificar se o servidor já existe
+   - name: Check Device
+     uri:
+        url: https://netbox.infra.zap.intra/api/dcim/devices/?name={{ servername }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: device_result
+
+   - set_fact:
+       device_count: "{{ device_result.json.count }}"
+
+   # Cria servidor se não existe
+   - name: Create Device
+     uri:
+        url: https://netbox.infra.zap.intra/api/dcim/devices/
+        method: POST
+        body: "{\"name\": \"{{ servername }}\",\"status\": 1,\"device_type\":3,\"device_role\":1,\"site\":1}" 
+        body_format: json
+        status_code: 200,201
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: device_create_result
+     when: device_count == "0"
+
+   - set_fact:
+       device_id: "{{ device_create_result.json.id }}"
+     when: device_count == "0"
+
+   - set_fact:
+       device_id: "{{ device_result.json.results[0].id }}"
+     when: device_count == "1"
+
+   # Cria as interfaces do servidor
+   - include_tasks: ../tasks/netbox_create_interfaces.yml
+     vars:
+       interface_name: "{{ item.value.name }}"
+       is_vm: "false"
+       machine_id: "{{ device_id }}"
+       ip_address: "{{ item.value.ipaddr }}"
+     with_dict: "{{ nics }}"

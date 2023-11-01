@@ -1,0 +1,112 @@
+---
+- hosts: EnclosureHP01AO_ilo4
+  name: Import HP Servers
+  gather_facts: False
+  serial: 1
+  connection: local
+  vars_files:
+    - "/etc/ansible/vault/vault.yml"
+
+  tasks:
+   - set_fact:
+       ilo_ip: "{{ hostvars[inventory_hostname].inventory_hostname }}"
+
+   # criar sessão API
+   - name: Create API Session
+     uri:
+       url: https://{{ ilo_ip }}/redfish/v1/SessionService/Sessions/
+       method: POST
+       body: "{\"UserName\": \"{{ ilo_api_user }}\",\"Password\":\"{{ ilo_api_pass }}\"}"
+       headers:
+         Content-Type: "application/json"
+         Accept: "application/json"
+       status_code: 200,201
+       validate_certs: False
+       return_content: yes
+       body_format: json
+     register: auth_result
+   
+   # obter dados da blade
+   - name: Get System Data
+     uri:
+       url: https://{{ ilo_ip }}/redfish/v1/Systems/1/
+       method: GET
+       status_code: 200,201
+       validate_certs: False
+       headers:
+         Content-Type: "application/json"
+         Accept: "application/json"
+         x-auth-token: "{{ auth_result.x_auth_token }}"
+     register: systems_res
+   
+   # validar se o servidor existe
+   - name: Check Device
+     uri:
+        url: https://netbox.infra.zap.intra/api/dcim/devices/?name={{ systems_res.json.HostName }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: device_result
+
+   - set_fact:
+       device_count: "{{ device_result.json.count }}"
+
+   # obter id do modelo
+   - name: Get Device Type
+     uri:
+        url: https://netbox.infra.zap.intra/api/dcim/device-types/?model={{ systems_res.json.Model | replace(' ', '%20') }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: device_type_result
+     when: device_count == "0"
+
+   # criar servidor
+   - name: Create Device
+     uri:
+        url: https://netbox.infra.zap.intra/api/dcim/devices/
+        method: POST
+        body: "{\"name\": \"{{ systems_res.json.HostName }}\",\"status\": 1,\"device_type\":{{ device_type_result.json.results[0].id }},\"device_role\":1,\"site\":1,\"comments\":\"Memory: {{ systems_res.json.Memory.TotalSystemMemoryGB }}Gb, Processors: {{systems_res.json.ProcessorSummary.Count }}X {{ systems_res.json.ProcessorSummary.Model }}, OS: {{systems_res.json.Oem.Hp.HostOS.OsName | default('N/A') }}\",\"serial\":\"{{ systems_res.json.SerialNumber }}\"}"
+        body_format: json
+        status_code: 200,201
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: device_create_result
+     when: device_count == "0"
+
+   - set_fact:
+       device_id: "{{ device_create_result.json.id }}"
+     when: device_count == "0"
+
+   - set_fact:
+       device_id: "{{ device_result.json.results[0].id }}"
+     when: device_count == "1"
+
+   # criar interface de Lights-out
+   - include_tasks: ../tasks/netbox_create_interfaces.yml
+     vars:
+       interface_name: "{{ systems_res.json.HostName }}-LO"
+       is_vm: false
+       machine_id: "{{ device_id }}"
+       ip_address: "{{ ilo_ip }}"
+
+   # terminar sessão API
+   - name: Delete API Session
+     uri:
+       url: "{{ auth_result.location }}"
+       method: DELETE
+       status_code: 200,201,204
+       validate_certs: False
+       headers:
+         Content-Type: "application/json"
+         Accept: "application/json"
+         x-auth-token: "{{ auth_result.x_auth_token }}"

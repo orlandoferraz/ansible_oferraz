@@ -1,0 +1,7 @@
+---
+- set_fact:
+     vm_pool: "{{ pool_vms.item.poolid }}"
+  with_items: "{{ pool_vms.json.data.members }}"
+  loop_control:
+      loop_var: pool_member
+  when: "node_vm.name == pool_member.name"

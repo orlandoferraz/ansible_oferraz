@@ -1,0 +1,35 @@
+---
+# ler ifcfg-% 
+- name: Get Ifconfigs
+  shell: cat {{ ifcfg_file }} | sed s/=/:/
+  register: ifcfgs
+
+# variável auxiliar para formar dicionário com as configs
+- name: Var aux
+  set_fact:
+    nics_aux: "{{ nics_aux | default([]) + [ifcfg.split(',')] }}"
+  with_items: "{{ ifcfgs.stdout_lines }}"
+  loop_control:
+    loop_var: ifcfg
+
+# criar dicionário das configs
+- name: get dictionary
+  set_fact:
+    nics: "{{ nics | default([]) | combine(dict([ nic_cfg.partition(':')[::2]| map('trim')] )) }}"
+  with_items: "{{ nics_aux }}"
+  loop_control:
+    loop_var: nic_cfg
+
+# criar interfaces em Netbox
+- include_tasks: ../tasks/netbox_create_interfaces.yml
+  vars:
+    interface_name: "{{ nics.NAME | default (nics.DEVICE) | replace(' ','') | replace('\"','') }}"
+    machine_id: "{{ device_id }}"
+    ip_address: "{{ nics.IPADDR | default(nics.IPADDR0) | replace('\"','') }}"
+  when: "('IPADDR' in nics and (nics.IPADDR | default('127.0.0.1')) != '127.0.0.1') or ('IPADDR0' in nics and (nics.IPADDR0 | default('127.0.0.1')) != '127.0.0.1')"
+
+# limpar variáveis para a póxima iteração
+- name: clear vars
+  set_fact:
+    nics: []
+    nics_aux: []

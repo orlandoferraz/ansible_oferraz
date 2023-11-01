@@ -1,0 +1,17 @@
+---
+- name: Get All VMs
+  uri:
+     url: https://{{ api_host }}/api2/json/nodes/{{ api_nodes.json.data[node_idx | int].node }}/qemu
+     method: GET 
+     validate_certs: no
+     headers:
+       Cookie: "PVEAuthCookie={{ session.json.data.ticket }}"
+  register: api_vms
+
+- set_fact:
+     vms_list: "{{ vms_list | default('[]') + [api_vms] }}"
+
+- name: Map VM to Node
+  set_fact: 
+     map: "{{ map | default({}) | combine ( { item.vmid: api_nodes.json.data[node_idx | int].node }) }}"
+  with_list: "{{ api_vms.json.data }} "

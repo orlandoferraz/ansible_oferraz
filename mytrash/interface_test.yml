@@ -1,0 +1,34 @@
+---
+- name: Verify and Register Network Interface in NetBox
+  hosts: netbox
+  gather_facts: False  # We don't need to gather facts
+
+  vars_files:
+  - "/home/oferraz/ansible_netbox/host_vars/vault.yml"
+  - "/home/oferraz/ansible_netbox/vars_files/LABSTREAM00.yaml"
+
+  tasks:
+    - name: Check if interface is registered
+      uri:
+        url: "https://netbox.infra.zap.intra/api/dcim/interfaces/?name={{ interface_name }}"
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+        return_content: yes
+      register: netbox_interface
+
+    - name: Register interface if not found
+      when: netbox_interface.status != 200
+      uri:
+        url: "https://netbox.infra.zap.intra/api/dcim/interfaces/"
+        method: POST
+        body: "{\"name\":\"{{ interface_name }}\",\"device\":\"{{ device }}\",\"type\":\"{{ type }}\",}"
+        body_format: json
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+        return_content: yes
+        status_code: 201
+      delegate_to: localhost
+
+
+
+

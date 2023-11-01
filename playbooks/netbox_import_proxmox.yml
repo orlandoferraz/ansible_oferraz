@@ -1,0 +1,53 @@
+---
+- hosts: localhost
+  name: Import Proxmox VM to NetBox
+  gather_facts: False
+
+  vars:
+    # host ou IP da interface GUI e API do Proxmox
+    - api_host: 172.18.33.129:8006
+    # Nome Cluster Proxmox criado em Netbox (Proxmox AO PP, Proxmox AO, Proxmox LX, Proxmox VN)
+    - proxmox: "Proxmox LX" 
+  vars_files:
+    - "/etc/ansible/vault/vault.yml"
+
+  tasks:
+   # Obter ID do Cluster Proxmox em Netvault para associar na VM 
+   - name: Get Proxmox ID
+     uri:
+        url: https://netbox.infra.zap.intra/api/virtualization/clusters/?q={{ proxmox | replace(' ','%20') }}
+        method: GET
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+          Authorization: "Token {{ netbox_token }}"
+        validate_certs: no
+     register: proxmox_id
+
+   # Criar Sessão na API do Proxmox
+   - name: Create API Session
+     uri:
+        url: https://{{ api_host }}/api2/json/access/ticket
+        method: POST
+        validate_certs: no
+        body_format: form-urlencoded
+        body:
+          username: "{{ pve_user }}"
+          password: "{{ pve_pass }}"
+     register: session
+
+   # Obter VMs de todos os Nós do Cluster
+   - name: Get All VMs
+     uri:
+        url: https://{{ api_host }}/api2/json/cluster/resources?type=vm
+        method: GET
+        validate_certs: no
+        headers:
+          Cookie: "PVEAuthCookie={{ session.json.data.ticket }}"
+     register: api_vms
+
+   # Importar task que cria no Netbox as VMs em falta
+   - include_tasks: ../tasks/netbox_import_node_vms.yml
+     with_list: "{{ api_vms.json.data }}"
+     loop_control:
+       loop_var: node
